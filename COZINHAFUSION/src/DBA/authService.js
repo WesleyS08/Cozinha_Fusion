@@ -1,7 +1,6 @@
 import supabase from "./supabaseClient";
 
 
-
 export const login = async (identifier, password) => {
     let userEmail = null;
     let userName = null;
@@ -16,51 +15,76 @@ export const login = async (identifier, password) => {
 
     try {
         if (userEmail) {
-            console.log('Tentando fazer login com e-mail:', userEmail);
-            console.log('Senha para login:', password);
+            console.log('Tentando buscar usuário pelo e-mail:', userEmail);
 
+            const { data: userData, error: userError } = await supabase
+                .from('usuarios')
+                .select('*')
+                .ilike('email', userEmail)
+                .single();
+
+            if (userError) {
+                console.error('Erro ao buscar usuário por e-mail:', userError);
+                return { user: null, session: null, error: 'Erro ao verificar a conta.' };
+            }
+
+            if (!userData) {
+                console.log('Usuário não encontrado pelo e-mail');
+                return { user: null, session: null, error: 'Usuário não encontrado pelo e-mail' };
+            }
+
+            if (!userData.Ativada) {
+                console.log('Conta desativada. Login bloqueado.');
+                return { user: null, session: null, error: 'Conta desativada.' };
+            }
+
+            console.log('Conta ativada. Realizando login...');
             const { user, session, error } = await supabase.auth.signInWithPassword({
                 email: userEmail,
                 password,
             });
 
             console.log('Resultado do login com e-mail:', { user, session, error });
+
             if (error) {
                 console.error('Erro no login com e-mail:', error.message);
                 return { user: null, session: null, error: error.message };
             }
             return { user, session, error: null };
-        }
-        else if (userName) {
+
+        } else if (userName) {
             console.log('Tentando buscar usuário pelo nome de usuário:', userName);
             const { data: userData, error: userError } = await supabase
                 .from('usuarios')
                 .select('*')
-                .ilike('nome', userName)
+                .eq('nome', userName)
                 .single();
 
-            console.log('Dados do usuário encontrados:', userData);
-            console.log('Erro ao buscar usuário pelo nome:', userError);
-
             if (userError) {
-                console.error('Erro ao buscar usuário:', userError);
+                console.error('Erro ao buscar usuário pelo nome:', userError);
                 return { user: null, session: null, error: userError.message };
             }
 
-            if (userData) {
-                const emailToLogin = userData.email.toLowerCase();
-                console.log('Fazendo login com e-mail do usuário encontrado:', emailToLogin);
-                const { user, session, error } = await supabase.auth.signInWithPassword({
-                    email: emailToLogin,
-                    password,
-                });
-
-                console.log('Resultado do login com e-mail do usuário encontrado:', { user, session, error });
-                return { user, session, error };
-            } else {
+            if (!userData) {
                 console.log('Usuário não encontrado pelo nome de usuário');
                 return { user: null, session: null, error: 'Usuário não encontrado pelo nome de usuário' };
             }
+
+            if (!userData.Ativada) {
+                console.log('Conta desativada. Login bloqueado.');
+                return { user: null, session: null, error: 'Conta desativada.' };
+            }
+
+            const emailToLogin = userData.email.toLowerCase();
+            console.log('Fazendo login com e-mail do usuário encontrado:', emailToLogin);
+            const { user, session, error } = await supabase.auth.signInWithPassword({
+                email: emailToLogin,
+                password,
+            });
+
+            console.log('Resultado do login com e-mail do usuário encontrado:', { user, session, error });
+            return { user, session, error };
+
         } else {
             console.error('Nenhum identificador válido fornecido para login.');
             return { user: null, session: null, error: 'Identificador inválido fornecido' };
@@ -72,11 +96,12 @@ export const login = async (identifier, password) => {
     }
 };
 
+
 const updateUserIdInUsuarios = async (userId, email) => {
     console.log('Atualizando id do usuário na tabela usuarios...');
     const { error } = await supabase
         .from('usuarios')
-        .update({ id: userId }) 
+        .update({ id: userId })
         .eq('email', email);
 
     if (error) {
@@ -208,7 +233,7 @@ export const register = async (nome, email, password) => {
         }
 
         console.log('Atualizando id do usuário na tabela usuarios...');
-        const updateResult = await updateUserIdInUsuarios(userIdFromUsuarios, email); 
+        const updateResult = await updateUserIdInUsuarios(userIdFromUsuarios, email);
         if (!updateResult.success) {
             return {
                 user: null,

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Animated, ScrollView, Button } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Animated, ScrollView, ActivityIndicator } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Dimensions } from 'react-native';
 import * as Yup from 'yup';
 import { login } from '../DBA/authService';
+
 import { useForm, Controller } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -21,7 +22,11 @@ const schema = Yup.object().shape({
     senha: Yup.string().required('Senha é obrigatória'),
 });
 
+
+
+
 export default function Login({ navigation }: LoginScreenProps) {
+    const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
@@ -100,7 +105,7 @@ export default function Login({ navigation }: LoginScreenProps) {
         console.log({ user, session, error });
 
         if (error) {
-            setErrorMessage(error.message || "Erro ao fazer login");
+            setErrorMessage(error || "Erro ao fazer login");  
             setSuccessMessage('');
         } else {
             setSuccessMessage('Login realizado com sucesso!');
@@ -109,14 +114,26 @@ export default function Login({ navigation }: LoginScreenProps) {
 
             if (rememberMe) {
                 await AsyncStorage.setItem('rememberedIdentifier', nome);
-                await AsyncStorage.setItem('rememberedPassword', senha); 
+                await AsyncStorage.setItem('rememberedPassword', senha);
             } else {
                 await AsyncStorage.removeItem('rememberedIdentifier');
-                await AsyncStorage.removeItem('rememberedPassword'); 
+                await AsyncStorage.removeItem('rememberedPassword');
             }
         }
-    };
+    }
 
+
+
+    const onPressHandler = async (e) => {
+        setIsLoading(true);
+        try {
+            await handleSubmit(handleLogin)(e);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
     return (
         <ScrollView contentContainerStyle={styles.container}>
             {/* Imagens de fundo */}
@@ -201,14 +218,35 @@ export default function Login({ navigation }: LoginScreenProps) {
                 <Text style={styles.rememberText}>Lembre-se de mim</Text>
             </View>
 
-            <View>
-                <Button title="Entrar" onPress={handleSubmit(handleLogin)} />
-                <Button title="Ir para Cadastro" onPress={() => navigation.navigate('Cadastro')} />
-                <Button title="Esqueceu a senha?" onPress={() => navigation.navigate('EsqueceuSenha')} />
+            <View style={styles.buttonContainer}>
+                <TouchableOpacity
+                    style={[styles.button, styles.outlinedButton]}
+                    onPress={onPressHandler}
+                    disabled={isLoading}
+                >
+                    {isLoading ? (
+                        <ActivityIndicator size="small" color="#FF6F00" />
+                    ) : (
+                        <Text style={styles.buttonText}>Entrar</Text>
+                    )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.button, styles.outlinedButton]}
+                    onPress={() => navigation.navigate('Cadastro')}
+                >
+                    <Text style={styles.buttonText}>Ir para Cadastro</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.button, styles.outlinedButton]}
+                    onPress={() => navigation.navigate('EsqueceuSenha')}
+                >
+                    <Text style={styles.buttonText}>Esqueceu a senha?</Text>
+                </TouchableOpacity>
             </View>
         </ScrollView>
     );
-}
+};
+
 const styles = StyleSheet.create({
     container:
     {
@@ -297,5 +335,24 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: 'red',
         marginBottom: 10,
+    },
+    buttonContainer: {
+        marginTop: 20,
+        width: '100%',
+    },
+    button: {
+        height: 50,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 4,
+        marginBottom: 10,
+    },
+    outlinedButton: {
+        borderWidth: 2,
+        borderColor: '#FF6F00',
+    },
+    buttonText: {
+        color: '#FF6F00',
+        fontWeight: 'bold',
     },
 });
