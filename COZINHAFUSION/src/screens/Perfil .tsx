@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-    StyleSheet, View, Text, TouchableOpacity, Switch, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StatusBar, TextInput, Image
-} from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Switch, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StatusBar, TextInput, Image } from 'react-native';
 import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/FontAwesome';
@@ -14,13 +12,22 @@ import { getUserInfo } from '../DBA/UserSearch';
 import * as ImagePicker from 'expo-image-picker';
 import { fetchImageAsBase64, handleImageUpload } from '../DBA/UserInsert';
 import { Alert } from 'react-native';
+import { BottomSheet, Button, ListItem } from '@rneui/themed';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Animated } from 'react-native';
+import UserAvatar from 'react-native-user-avatar';
+import supabase from '../DBA/supabaseClient';
+import { StackNavigationProp } from '@react-navigation/stack';
 
 const { width, height } = Dimensions.get('window');
 const isPortrait = height > width;
 
-export default function Perfil() {
-    const [profileImage, setProfileImage] = useState(null);
-    const [uploading, setUploading] = useState(false);
+type PerfilScreenProps = {
+    navigation: StackNavigationProp<any>;
+};
+
+export default function Perfil({ navigation }: PerfilScreenProps) {
+
     const [notificacoesAtivas, setNotificacoesAtivas] = React.useState(true);
     const [modoEscuro, setModoEscuro] = React.useState(false);
     const [modalVisible, setModalVisible] = React.useState(false);
@@ -38,21 +45,38 @@ export default function Perfil() {
     const [selectedLanguage, setSelectedLanguage] = useState('Português');
     const { t } = useTranslation();
     const [userInfo, setUserInfo] = useState(null);
-    const IdiomasDisponiveis = [
-        { label: t('Português'), code: 'pt' },
-        { label: t('Inglês'), code: 'en' },
-        { label: t('Espanhol'), code: 'es' }
-    ];
+    const [uploading, setUploading] = useState(false);
+    const [profileImage, setProfileImage] = useState(null);
+    const [animacao] = useState(new Animated.Value(0));
+
 
 
     useEffect(() => {
         const fetchUserInfo = async () => {
-            const data = await getUserInfo();
-            setUserInfo(data);
+            const info = await getUserInfo();
+            if (info) {
+                setUserInfo(info);
+                setProfileImage(info.imagem_perfil);
+            }
         };
 
         fetchUserInfo();
     }, []);
+
+
+    // Interpolação para a posição do círculo
+    const circlePosition = animacao.interpolate({
+        inputRange: [0, 1],
+        outputRange: [-87, 88],
+    });
+
+    // Interpolação para a cor do switch
+    const switchBackgroundColor = animacao.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['#ddd', '#ff8c00'],
+    });
+
+
 
 
     const toggleNotificacoes = () => {
@@ -60,7 +84,13 @@ export default function Perfil() {
     };
 
     const toggleModoEscuro = () => {
-        setModoEscuro(prevState => !prevState);
+        setModoEscuro(previousState => !previousState);
+
+        Animated.timing(animacao, {
+            toValue: modoEscuro ? 0 : 1, 
+            duration: 300, 
+            useNativeDriver: false,
+        }).start();
     };
 
     const openModal = (content) => {
@@ -80,25 +110,111 @@ export default function Perfil() {
         // Implementar a lógica para alterar a senha
     };
 
-    const handleLogoff = () => {
-        // Implementar a lógica para deslogar
+    const handleDelete = async () => {
+        setShowPasswordModal(true);
+        closeModal();
     };
 
-    const handleDeleteAccount = (password) => {
-        // Implementar a lógica para deletar a conta
-    };
     const handlePasswordSubmit = async () => {
+        if (!userInfo?.email) {
+            Alert.alert('Erro', 'Informações do usuário não carregadas corretamente.');
+            return;
+        }
+    
+        try {
+            // Tenta autenticar o usuário novamente usando a senha fornecida
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email: userInfo.email,
+                password: passwordInput,
+            });
+    
+            if (error) {
+                Alert.alert('Senha incorreta!');
+                return;
+            }
+    
+            // Agora a variável `data` contém o usuário autenticado e a sessão, e o id está em data.user.id
+            const { error: updateError } = await supabase
+                .from('usuarios')
+                .update({ Ativada: false })
+                .eq('email', userInfo.email); 
+    
+            if (updateError) {
+                console.log('Erro na atualização de Ativada:', updateError.message); 
+                Alert.alert('Erro ao desativar conta', updateError.message);
+                return;
+            }
+    
+            // Agora busque os dados atualizados
+            const { data: updatedData, error: fetchError } = await supabase
+                .from('usuarios')
+                .select('Ativada')
+                .eq('email', userInfo.email) 
+                .single(); 
+    
+            if (fetchError) {
+                console.log('Erro ao buscar dados atualizados:', fetchError.message);
+                Alert.alert('Erro ao verificar status da conta', fetchError.message);
+                return;
+            }
+    
+            if (updatedData?.Ativada === false) {
+                closeModal();
+                setShowPasswordModal(false);
+                navigation.navigate('Login');
+                Alert.alert('Conta desativada com sucesso!');
+            } else {
+                Alert.alert('Erro', 'Não foi possível desativar sua conta.');
+            }
+    
+        } catch (error: any) {
+            console.log('Erro ao verificar a senha:', error.message); 
+            Alert.alert('Erro ao verificar a senha', error.message);
+        }
     };
-
-    const toggleIdiomasList = () => {
-        setShowIdiomas(!showIdiomas);
+    
+    
+    
+    const handleLogoff = async () => {
+        try {
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+                console.error('Erro ao sair:', error.message);
+            } else {
+                console.log('Usuário deslogado com sucesso!');
+                navigation.navigate('Login')
+            }
+        } catch (error) {
+            console.error('Erro inesperado ao sair:', error.message);
+        }
     };
 
     const selectLanguage = async (language) => {
         setSelectedLanguage(language);
         await i18n.changeLanguage(language);
         setShowIdiomas(false);
+        setIsVisible(false);
     };
+
+
+    const [isVisible, setIsVisible] = useState(false);
+    const list = [
+        { title: 'Português' },
+        { title: 'Inglês' },
+        { title: 'Espanhol' },
+        {
+            title: 'Cancel',
+            containerStyle: { backgroundColor: 'red' },
+            titleStyle: { color: 'white' },
+            onPress: () => setIsVisible(false),
+        },
+    ];
+
+    const IdiomasDisponiveis = [
+        { label: t('Português'), code: 'pt' },
+        { label: t('Inglês'), code: 'en' },
+        { label: t('Espanhol'), code: 'es' }
+    ];
 
     const pickImage = async () => {
         console.log('pickImage: Iniciando a seleção de imagem...');
@@ -125,6 +241,7 @@ export default function Perfil() {
                 const imageUri = result.assets[0].uri;
                 console.log('pickImage: Imagem selecionada. Convertendo para Base64...');
                 setUploading(true);
+
                 const base64Image = await fetchImageAsBase64(imageUri);
                 if (base64Image) {
                     const mimeType = result.assets[0].mimeType || 'image/jpeg';
@@ -133,7 +250,21 @@ export default function Perfil() {
 
                     if (userInfo) {
                         const userId = userInfo.id;
-                        await handleImageUpload(base64Image, userId);
+                        const imageUrl = await handleImageUpload(base64Image, userId);
+                        if (imageUrl) {
+                            const { error: updateError } = await supabase
+                                .from('usuarios')
+                                .update({ imagem_perfil: imageUrl })
+                                .eq('id', userId);
+
+                            if (updateError) {
+                                console.error(`Erro ao atualizar imagem_perfil: ${updateError.message}`);
+                            } else {
+                                console.log('Imagem de perfil atualizada com sucesso no banco.');
+                            }
+                        } else {
+                            Alert.alert("Erro", "Falha ao gerar URL da imagem.");
+                        }
                     }
                 } else {
                     Alert.alert("Erro", "Falha ao converter a imagem.");
@@ -148,6 +279,7 @@ export default function Perfil() {
         }
     };
 
+
     return (
         <KeyboardAvoidingView
             style={[styles.container, colorScheme === 'dark' && { backgroundColor: '#1a1a1a' }]}
@@ -155,12 +287,16 @@ export default function Perfil() {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
         >
             <DrawerScreneWrapper>
-                <View style={styles.containermenu}>
+                <View style=
+                    {[styles.containermenu, colorScheme === 'dark' && { backgroundColor: '#1a1a1a' }]}>
                     <View style={styles.header}>
-                        <Text style={styles.username}>
+                        <Text style=
+                            {[styles.username, colorScheme === 'dark' && { color: '#fff' }]}>
                             {t("Perfil")}
                         </Text>
-                        <DrawerToggleButton />
+                        <DrawerToggleButton
+                            tintColor={colorScheme === 'dark' ? '#fff' : '#000'}
+                        />
                     </View>
                 </View>
                 <SafeAreaView style={[styles.container, colorScheme === 'dark' && { backgroundColor: '#212121' }]}>
@@ -171,13 +307,18 @@ export default function Perfil() {
                             ) : profileImage ? (
                                 <Image source={{ uri: profileImage }} style={styles.profileImage} />
                             ) : (
-                                <Text style={styles.placeholderText}>Adicionar Imagem</Text>
+                                <UserAvatar size={70} name={userInfo?.name || 'User'} />
                             )}
                         </TouchableOpacity>
-
-                        <Text style={[styles.usernameText, colorScheme === 'dark' && { color: '#fff' }]}>
-                            {username.length > 20 ? `${username.substring(0, 20)}...` : (username || t("Carregando..."))}
-                        </Text>
+                        {userInfo ? (
+                            <Text style={[styles.usernameText, colorScheme === 'dark' && { color: '#fff' }]}>
+                                {userInfo.name || t("Carregando...")}
+                            </Text>
+                        ) : (
+                            <Text style={[styles.usernameText, colorScheme === 'dark' && { color: '#fff' }]}>
+                                {t("Carregando...")}
+                            </Text>
+                        )}
 
                         <ScrollView contentContainerStyle={[styles.containerScroll, colorScheme === 'dark' && { backgroundColor: '#000' }]}>
                             <View style={styles.line} />
@@ -196,38 +337,63 @@ export default function Perfil() {
                                 <Text style={[styles.text, colorScheme === 'dark' && { color: '#fff' }]}>{t("Alterar a senha")}</Text>
                                 <Icon name="chevron-right" size={20} color={colorScheme === 'dark' ? '#fff' : '#ff8c00'} style={styles.icon} />
                             </TouchableOpacity>
-
-                            <TouchableOpacity style={[styles.Options, colorScheme === 'dark' && { backgroundColor: '#ff8c00' }]} onPress={toggleIdiomasList}>
-                                <Text style={[styles.text, colorScheme === 'dark' && { color: '#fff' }]}>{t("Alterar Idioma")}</Text>
+                            <TouchableOpacity
+                                style={[styles.Options, colorScheme === 'dark' && { backgroundColor: '#ff8c00' }]}
+                                onPress={() => setIsVisible(true)}
+                                accessibilityLabel={t("Alterar Idioma")}
+                            >
+                                <Text style={[styles.text, colorScheme === 'dark' && { color: '#fff' }]}>
+                                    {t("Alterar Idioma")}
+                                </Text>
                                 <Icon name="chevron-right" size={20} color={colorScheme === 'dark' ? '#fff' : '#ff8c00'} style={styles.icon} />
                             </TouchableOpacity>
 
-                            {showIdiomas && (
-                                <ScrollView style={[styles.idiomasList, colorScheme === 'dark' && { backgroundColor: '#333' }]}>
-                                    {IdiomasDisponiveis.map(({ label, code }) => (
-                                        <TouchableOpacity key={code} onPress={() => selectLanguage(code)} style={styles.idiomaItem}>
-                                            <Text style={[styles.idiomaText, colorScheme === 'dark' && { color: '#fff' }]}>
-                                                {label}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </ScrollView>
-                            )}
+                            <SafeAreaProvider>
+                                <BottomSheet modalProps={{}} isVisible={isVisible}>
+                                    <View style={{ backgroundColor: '#f0f0f0', padding: 10 }}> {/* Fundo para o BottomSheet */}
+                                        <ScrollView>
+                                            {IdiomasDisponiveis.map(({ label, code }) => (
+                                                <TouchableOpacity
+                                                    key={code}
+                                                    onPress={() => selectLanguage(code)}
+                                                    style={[
+                                                        styles.idiomaItem,
+                                                        {
+                                                            backgroundColor: selectedLanguage === code ? '#ff8c00' : '#fff',
+                                                            padding: 15,
+                                                            borderRadius: 5,
+                                                            marginVertical: 5,
+                                                        }
+                                                    ]}
+                                                >
+                                                    <Text style={[styles.idiomaText, { color: selectedLanguage === code ? '#fff' : '#333' }]}>
+                                                        {label}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                            <TouchableOpacity
+                                                onPress={() => setIsVisible(false)}
+                                                style={{ backgroundColor: 'red', padding: 10, borderRadius: 5, marginTop: 10 }}
+                                            >
+                                                <Text style={{ color: 'white' }}>{t('Cancelar')}</Text>
+                                            </TouchableOpacity>
+                                        </ScrollView>
+                                    </View>
+                                </BottomSheet>
+                            </SafeAreaProvider>
 
-                            {/* Exibir o idioma selecionado */}
-                            <Text style={[styles.selectedLanguageText, colorScheme === 'dark' && { color: '#fff' }]}>
-                                {t("Idioma selecionado")}: {IdiomasDisponiveis.find(i => i.code === selectedLanguage)?.label}
-                            </Text>
-                            <View style={styles.switchContainer}>
-                                <Text style={[styles.text, colorScheme === 'dark' && { color: '#fff' }]}>Dark mode</Text>
-                                <Switch
-                                    trackColor={{ false: "#767577", true: "#ff8c00" }}
-                                    thumbColor={modoEscuro ? "#ff8c00" : "#f4f3f4"}
-                                    ios_backgroundColor="#3e3e3e"
-                                    onValueChange={toggleModoEscuro}
-                                    value={modoEscuro}
-                                />
-                            </View>
+                                <TouchableOpacity style={styles.switchContainer} onPress={toggleModoEscuro}>
+                                    {/* Ícone para Modo Claro */}
+                                    <Icon name="sun-o" size={24} color={modoEscuro ? '#aaa' : '#ff8c00'} />
+
+                                    {/* Use Animated.View para o switch */}
+                                    <Animated.View style={[styles.switch, { backgroundColor: switchBackgroundColor }]}>
+                                        <Animated.View style={[styles.circle, { transform: [{ translateX: circlePosition }] }]} />
+                                    </Animated.View>
+
+                                    {/* Ícone para Modo Escuro */}
+                                    <Icon name="moon-o" size={24} color={modoEscuro ? '#ff8c00' : '#aaa'} />
+                                </TouchableOpacity>
 
                             <View style={styles.line} />
                             <Text style={[styles.message, colorScheme === 'dark' && { color: '#fff' }]}>
@@ -459,19 +625,10 @@ export default function Perfil() {
                                                 {/* Ícone */}
                                                 <Icon name="sign-out" size={20} color="red" style={styles.icon} />
 
-                                                <Text style={[styles.modalText, colorScheme === 'dark' && { color: '#fff' }]}>Tem certeza que deseja sair?</Text>
+                                                <Text style={[styles.Titulosair, colorScheme === 'dark' && { color: '#fff' }]}>Tem certeza que deseja sair?</Text>
                                                 <Text style={[styles.modalDescriptionText, colorScheme === 'dark' && { color: '#fff' }]}>
                                                     Ao sair, você precisará fazer login novamente para acessar sua conta.
                                                 </Text>
-
-                                                {/* Lembre-se da minha escolha */}
-                                                <View style={styles.rememberChoiceContainer}>
-                                                    <Switch
-                                                        value={rememberChoice}
-                                                        onValueChange={setRememberChoice}
-                                                    />
-                                                    <Text style={[styles.rememberChoiceText, colorScheme === 'dark' && { color: '#fff' }]}>Lembre-se da minha escolha</Text>
-                                                </View>
 
                                                 {/* Botões de ação */}
                                                 <View style={styles.buttonContainer}>
@@ -495,7 +652,7 @@ export default function Perfil() {
 
                                                 <Text style={[styles.modalText, colorScheme === 'dark' && { color: '#fff' }]}>Tem certeza  que deseja deletar sua conta?</Text>
                                                 <Text style={[styles.modalDescriptionText, colorScheme === 'dark' && { color: '#fff' }]}>
-                                                    Tem certeza de que deseja excluir esta Conta? Esta ação não pode ser desfeita.
+                                                    Tem certeza de que deseja excluir esta Conta?
                                                 </Text>
 
                                                 {/* Botões de Ação */}
@@ -505,9 +662,7 @@ export default function Perfil() {
                                                     </TouchableOpacity>
                                                     <TouchableOpacity
                                                         style={styles.exitButton}
-                                                        onPress={async () => {
-                                                        }}
-                                                    >
+                                                        onPress={handleDelete}>
                                                         <Text style={styles.buttonText}>Deletar</Text>
                                                     </TouchableOpacity>
                                                 </View>
@@ -518,7 +673,7 @@ export default function Perfil() {
                             </Modal>
                         </ScrollView>
 
-                        {/* Modal para solicitar senha */}
+                        {/* Modal para solicitar a senha */}
                         <Modal visible={showPasswordModal} transparent={true} animationType="slide">
                             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
                                 <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 10 }}>
@@ -528,10 +683,7 @@ export default function Perfil() {
                                         style={{ borderWidth: 1, borderColor: 'gray', marginTop: 10, padding: 10 }}
                                         placeholder="Insira a Senha"
                                         value={passwordInput}
-                                        onChangeText={(text) => {
-                                            console.log('Senha digitada:', text); // Log para verificar o valor digitado
-                                            setPasswordInput(text);
-                                        }}
+                                        onChangeText={(text) => setPasswordInput(text)}
                                     />
                                     <TouchableOpacity onPress={handlePasswordSubmit} style={{ backgroundColor: '#ff8c00', padding: 10, marginTop: 10 }}>
                                         <Text style={{ color: 'white' }}>Confirmar</Text>
@@ -564,7 +716,7 @@ export default function Perfil() {
                 <StatusBar />
             </DrawerScreneWrapper>
 
-        </KeyboardAvoidingView>
+        </KeyboardAvoidingView >
     );
 }
 
@@ -695,9 +847,49 @@ const styles = StyleSheet.create({
     },
     switchContainer: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        marginTop: 20,
+        padding: 10,
+        backgroundColor: '#f0f0f0',
+        borderRadius: 20,
+        justifyContent: 'space-between',
+        marginLeft: '4%',
+        marginTop: '5%',
+        width: '90%',
+    },
+    switch: {
+        width: '70%',
+        height: 30,
+        borderRadius: 15,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 5,
+        backgroundColor: '#ddd',
+        position: 'relative',
+
+    },
+    circle: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#fff',
+        position: 'absolute',
+
+    },
+    switchOn: {
+        backgroundColor: '#ff8c00',
+    },
+    switchOff: {
+        backgroundColor: '#ddd',
+    },
+    circleOn: {
+        backgroundColor: '#fff',
+        right: 5,
+
+    },
+    circleOff: {
+        backgroundColor: '#fff',
+        left: 5,
+
     },
     textSwitch: {
         fontSize: 16,
@@ -725,6 +917,15 @@ const styles = StyleSheet.create({
         marginBottom: 15,
         textAlign: 'center',
         fontSize: 18,
+    },
+    Titulosair: {
+        marginBottom: 15,
+        textAlign: 'center',
+        fontSize: 18,
+        marginTop: '-10%'
+    },
+    modalDescriptionText: {
+        marginBottom: 20,
     },
     input: {
         height: 40,
@@ -810,7 +1011,7 @@ const styles = StyleSheet.create({
     containermenu:
     {
         padding: 16,
-        paddingTop: 32,
+        paddingTop: 10,
         backgroundColor: '#ffffff',
         borderWidth: 1,
         borderColor: '#e0e0e0',

@@ -29,7 +29,7 @@ export const fetchImageAsBase64 = async (imagePath:any) => {
     }
 };
 
-export const handleImageUpload = async (base64Image:any, userId:any) => {
+export const handleImageUpload = async (base64Image, userId) => {
     console.log('Enviando imagem e ID do usuário...');
     console.log('Base64 Image:', base64Image);
     console.log('User ID:', userId);
@@ -37,15 +37,14 @@ export const handleImageUpload = async (base64Image:any, userId:any) => {
     try {
         const bucketName = 'FotosdePerfil';
 
+        // Verifica se o bucket já existe
         const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
-
         if (bucketsError) {
-            console.error('Error listing buckets:', bucketsError.message);
+            console.error('Erro ao listar os buckets:', bucketsError.message);
             return;
         }
 
         const bucketExists = buckets.some(bucket => bucket.name === bucketName);
-
         if (!bucketExists) {
             const { error: createBucketError } = await supabase.storage.createBucket(bucketName);
             if (createBucketError) {
@@ -55,31 +54,34 @@ export const handleImageUpload = async (base64Image:any, userId:any) => {
             console.log(`Bucket "${bucketName}" criado com sucesso.`);
         }
 
+        // Busca o nome do usuário no banco
         const { data: userData, error: userDataError } = await supabase
             .from('usuarios')
             .select('nome')
             .eq('id', userId)
-            .single(); 
+            .single();
 
         if (userDataError) {
             console.error(`Erro ao buscar nome do usuário: ${userDataError.message}`);
             return;
         }
 
-        const userName = userData.nome; 
-        const fileName = `${userId}.png`;
+        const userName = userData.nome;
+        const fileName = `${userId}.png`;  // Ou use algo único como UUID ou timestamp
         const folderPath = `${userName}/${fileName}`;
 
         console.log('Folder Path:', folderPath);
 
+        // Converte Base64 para ArrayBuffer
         const arrayBuffer = decodeBase64(base64Image);
 
-        const { data, error: uploadError } = await supabase.storage
-            .from(bucketName) 
+        // Faz o upload da imagem com upsert (substitui se já existir)
+        const { error: uploadError } = await supabase.storage
+            .from(bucketName)
             .upload(folderPath, arrayBuffer, {
-                contentType: 'image/png', 
+                contentType: 'image/png',
                 cacheControl: '3600',
-                upsert: false, 
+                upsert: true,  
             });
 
         if (uploadError) {
@@ -87,11 +89,32 @@ export const handleImageUpload = async (base64Image:any, userId:any) => {
             return;
         }
 
-        console.log('Image uploaded successfully.');
+        console.log('Imagem enviada com sucesso.');
+
+        const { data: publicUrlData, error: publicUrlError } = supabase.storage
+            .from(bucketName)
+            .getPublicUrl(folderPath);
+
+        if (publicUrlError) {
+            console.error('Erro ao obter URL pública:', publicUrlError.message);
+            return null;
+        }
+
+        if (publicUrlData) {
+            console.log('Public URL:', publicUrlData.publicUrl);
+            return publicUrlData.publicUrl;  
+        } else {
+            console.error('Erro ao gerar URL pública.');
+            return null;
+        }
     } catch (err) {
         console.error('Erro ao manipular o upload da imagem:', err);
+        throw err;
     }
 };
+
+
+
 
 const decodeBase64 = (base64:any) => {
     const binaryString = atob(base64);

@@ -38,7 +38,8 @@ export default function DrawerNavigator() {
                         width: '50%',
                     },
                     drawerLabelStyle: {
-                        marginLeft: -24,
+                        marginLeft: 1, 
+                        paddingLeft: 10,
                     },
                     sceneContainerStyle: {
                         backgroundColor: '#1d1f25',

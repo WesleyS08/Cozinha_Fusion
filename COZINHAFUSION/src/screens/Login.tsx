@@ -4,7 +4,6 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { Dimensions } from 'react-native';
 import * as Yup from 'yup';
 import { login } from '../DBA/authService';
-
 import { useForm, Controller } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
